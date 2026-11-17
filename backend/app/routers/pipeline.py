@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
 from app.services.pipeline import PipelineService
@@ -16,6 +17,12 @@ router = APIRouter(prefix="/api/pipeline", tags=["分析管道"])
 service = PipelineService()
 LIST_FIELDS = ["节点编号", "输入数据集", "分析算子", "输出结果", "执行顺序", "依赖节点", "失败策略", "节点状态"]
 STATUSES = ["草稿", "已配置", "运行中", "已完成", "失败"]
+
+
+class PipelineRunPayload(BaseModel):
+    """管道运行载荷：默认优先复用物化中间产物，可要求按依赖链强制重算。"""
+
+    force_recompute: bool = False
 
 
 def csv_cell(value: Any) -> str:
@@ -43,6 +50,29 @@ def export_entries() -> StreamingResponse:
         writer.writerow(["edge", "", "", edge.get("from",""), edge.get("to",""), edge.get("label",""), ""])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": "attachment; filename=pipeline.csv"})
+
+
+@router.get("/runs")
+def list_runs() -> dict[str, Any]:
+    """管道运行记录：可查看每次运行的中间产物复用或重算依据。"""
+    return {"items": service.list_runs()}
+
+
+@router.get("/artifacts")
+def list_artifacts(topology_version: int | None = Query(default=None)) -> dict[str, Any]:
+    """管道中间产物记录：可按拓扑版本回查同一版本下确认的物化产物。"""
+    return {"items": service.list_artifacts(topology_version)}
+
+
+@router.post("/run")
+def run_pipeline(payload: PipelineRunPayload) -> dict[str, Any]:
+    """运行入口：依赖解析结果同时服务运行与导出，落成统一的运行与产物记录。"""
+    run = service.run_pipeline(force_recompute=payload.force_recompute)
+    return {
+        "ok": True,
+        "message": "分析管道运行完成，中间产物记录已确认",
+        "run": run,
+    }
 
 
 @router.get("/{entry_id}")

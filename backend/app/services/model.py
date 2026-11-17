@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.dag_topology import topology_resolver
 from app.store import store
 
 MODULE = "model"
@@ -21,15 +22,8 @@ def csv_cell(value: Any) -> str:
 
 class ModelService:
     def get_graph(self) -> dict[str, Any]:
-        rows = store.rows(MODULE)
-        nodes: list[dict] = []
-        edges: list[dict] = []
-        for i, row in enumerate(rows):
-            nodes.append({"id": int(row.get("id", i+1)), "name": str(row.get(list(row.keys())[1] if len(row)>1 else "name", "")), "status": str(row.get("status", STATUS_ORDER[0])),
-                          **{k: row[k] for k in row if k not in ("id","status","pending","abnormal")}})
-        for i in range(len(nodes)-1):
-            edges.append({"from": nodes[i]["id"], "to": nodes[i+1]["id"], "label": "依赖"})
-        return {"nodes": nodes, "edges": edges}
+        # 与分析管道、数据集市共用同一套收拢后的拓扑依赖解析。
+        return topology_resolver.resolve(MODULE, STATUS_ORDER[0]).graph()
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(MODULE, entry_id)

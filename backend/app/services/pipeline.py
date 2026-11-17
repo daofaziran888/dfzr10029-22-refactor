@@ -1,8 +1,14 @@
-"""分析管道 DAG 图服务：生成节点、边示例结构与流转规则。"""
+"""分析管道 DAG 图服务：节点流转规则与统一拓扑依赖解析。
+
+拓扑遍历已收拢到 ``app.services.dag_topology``，本服务只保留分析管道自己的
+登记、动作规则，并通过 ``ArtifactRegistry`` 复用统一的中间产物记录实现。
+"""
 from __future__ import annotations
 
 from typing import Any
 
+from app.services.dag_topology import topology_resolver
+from app.services.pipeline_artifacts import artifact_registry
 from app.store import store
 
 MODULE = "pipeline"
@@ -21,15 +27,8 @@ def csv_cell(value: Any) -> str:
 
 class PipelineService:
     def get_graph(self) -> dict[str, Any]:
-        rows = store.rows(MODULE)
-        nodes: list[dict] = []
-        edges: list[dict] = []
-        for i, row in enumerate(rows):
-            nodes.append({"id": int(row.get("id", i+1)), "name": str(row.get(list(row.keys())[1] if len(row)>1 else "name", "")), "status": str(row.get("status", STATUS_ORDER[0])),
-                          **{k: row[k] for k in row if k not in ("id","status","pending","abnormal")}})
-        for i in range(len(nodes)-1):
-            edges.append({"from": nodes[i]["id"], "to": nodes[i+1]["id"], "label": "依赖"})
-        return {"nodes": nodes, "edges": edges}
+        # 页面、导出、运行入口共用同一份版本化拓扑解析结果。
+        return topology_resolver.resolve(MODULE, STATUS_ORDER[0]).graph()
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(MODULE, entry_id)
@@ -62,3 +61,14 @@ class PipelineService:
     def raw_data(self) -> tuple[list[dict], list[dict]]:
         g = self.get_graph()
         return g["nodes"], g["edges"]
+
+    # ---- 管道运行与中间产物记录：统一走 ArtifactRegistry ---------------------
+
+    def run_pipeline(self, *, force_recompute: bool = False) -> dict[str, Any]:
+        return artifact_registry.record_run(force_recompute=force_recompute)
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        return artifact_registry.list_runs()
+
+    def list_artifacts(self, topology_version: int | None = None) -> list[dict[str, Any]]:
+        return artifact_registry.list_artifacts(topology_version)

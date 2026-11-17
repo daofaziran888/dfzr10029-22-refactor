@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload
 from app.services.export import ExportService
+from app.services.pipeline_artifacts import artifact_registry
 
 router = APIRouter(prefix="/api/export", tags=["数据导出"])
 service = ExportService()
@@ -44,6 +45,12 @@ def export_entries() -> StreamingResponse:
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": "attachment; filename=export.csv"})
+
+
+@router.get("/pipeline-artifacts")
+def pipeline_artifacts(topology_version: int | None = Query(default=None)) -> dict[str, Any]:
+    """跨领域模块只读回查管道中间产物记录，按同一拓扑版本核对。"""
+    return artifact_registry.cross_domain_snapshot(topology_version)
 
 
 @router.get("/{entry_id}")

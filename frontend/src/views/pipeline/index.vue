@@ -4,6 +4,8 @@
       <div><h2>分析管道</h2><p class="page-desc">维护分析节点，围绕节点编号、输入数据集、分析算子、输出结果做登记、筛选与状态流转。</p></div>
       <div class="page-actions">
         <button class="btn primary" type="button" data-testid="open-create" @click="openCreate">登记分析节点</button>
+        <button class="btn" type="button" data-testid="run-pipeline" @click="runPipeline()">运行管道</button>
+        <button class="btn" type="button" data-testid="recompute-pipeline" @click="runPipeline(true)">按依赖链重算</button>
         <button class="btn" type="button" data-testid="export" @click="exportRows">导出关系清单</button>
       </div>
     </header>
@@ -37,7 +39,18 @@
         </div>
       </form>
     </div>
-    <footer class="page-foot"><span>{{ graph.nodes.length }} 个节点</span></footer>
+    <div v-if="lastRun" class="dag-detail" data-testid="run-detail">
+      <h3 style="grid-column:1/-1;margin:0 0 4px">运行详情（拓扑版本 {{ lastRun.topology_version }}）</h3>
+      <dl v-for="n in lastRun.nodes" :key="n.node_id" style="grid-column:1/-1">
+        <dt>节点 {{ n.node_id }}（{{ n['节点编号'] }}）</dt>
+        <dd>
+          <span :data-testid="`run-source-${n.node_id}`">{{ n.source }}</span>
+          <small style="color:#64748b;margin-left:6px">{{ n.basis }}</small>
+        </dd>
+      </dl>
+      <dl style="grid-column:1/-1"><dt>最终节点 {{ lastRun.final_node }} 数据结果</dt><dd data-testid="run-final-output">{{ lastRun.final_output }}</dd></dl>
+    </div>
+    <footer class="page-foot"><span>{{ graph.nodes.length }} 个节点</span><span v-if="runCount">已运行 {{ runCount }} 次</span></footer>
   </section>
 </template>
 <script setup lang="ts">
@@ -57,6 +70,8 @@ const svgW = ref(800); const svgH = ref(400)
 const errorMessage = ref('')
 const creating = ref(false); const showCreate = ref(false)
 const createValues = ref<Record<string,string>>({})
+const lastRun = ref<any>(null)
+const runCount = ref(0)
 let dragNode: any = null; const dagRef = ref<HTMLElement|null>(null)
 function layout(nodes: any[]) {
   const w = 800; const h = Math.max(400, nodes.length * 80)
@@ -78,5 +93,18 @@ async function submitCreate() {
   try { const res = await request(ENDPOINT, { method: 'POST', body: JSON.stringify({ values: createValues.value }) }); if(!res.ok) throw new Error('创建失败'); showCreate.value = false; await reload() } catch(e: any) { errorMessage.value = e.message }
 }
 function exportRows() { window.open(`${ENDPOINT}/export`, '_blank') }
-onMounted(reload)
+async function runPipeline(forceRecompute = false) {
+  try {
+    const res = await request(`${ENDPOINT}/run`, { method: 'POST', body: JSON.stringify({ force_recompute: forceRecompute }) })
+    if (!res.ok) throw new Error('运行失败')
+    const data = await res.json()
+    lastRun.value = data.run
+    await reload()
+    await loadRunCount()
+  } catch(e: any) { errorMessage.value = e.message }
+}
+async function loadRunCount() {
+  try { const res = await request(`${ENDPOINT}/runs`); const data = await res.json(); runCount.value = (data.items || []).length } catch(e) { /* 运行记录可选，不阻断页面 */ }
+}
+onMounted(() => { reload(); loadRunCount() })
 </script>
